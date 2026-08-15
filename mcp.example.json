@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "bayernwerk": {
+      "command": "bash",
+      "args": [
+        "-l",
+        "-c",
+        "uvx --from git+https://github.com/the78mole/bayernwerk-mcp.git bayernwerk-mcp"
+      ]
+    }
+  }
+}

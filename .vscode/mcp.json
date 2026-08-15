@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "bayernwerk": {
+      "command": "bash",
+      "args": [
+        "-l",
+        "-c",
+        "uv run bayernwerk-mcp"
+      ],
+    }
+  }
+}
