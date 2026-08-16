@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp[cli]>=2,<2.1",
-    "bayernwerk-client>=0.1.0",
+    "bayernwerk-client[login]>=0.1.0",
 ]
 
 [project.optional-dependencies]

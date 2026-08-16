@@ -23,27 +23,49 @@ your own, authorized account.
 ## Authentication
 
 Both portals sit behind a Cloudflare-JS-challenge and a Salesforce Aura
-login, which only a real browser can complete - this MCP server therefore
-**never logs in itself**. Instead:
+login, so logging in always means a real, Playwright-driven browser - there's
+no way around that. This server just decides *when* that browser opens, in
+one of two modes:
 
-1. Install `bayernwerk-client` with its `login` extra and run the CLI login
-   once per service (outside of any MCP client, in a normal terminal):
+### Automatic login (recommended if you're at the keyboard)
 
-   ```bash
-   uv tool install "bayernwerk-client[login]"
-   playwright install chromium
-   bayernwerk map login
-   bayernwerk efix login
-   ```
+Set `MAP_EMAIL`/`MAP_PASSWORD` as environment variables on the MCP server
+itself (in your MCP client's server config, e.g. `claude_desktop_config.json`
+or `.vscode/mcp.json` - see [Configuration](#configuration-in-vs-code--claude-desktop)
+below). Whenever a tool call finds no cached token, or a cached token has
+expired, the server logs in for you automatically - a Chromium window briefly
+opens on **the machine the server runs on** (headed by default, so you can
+see and intervene if e.g. an unexpected MFA/consent prompt shows up), fills
+in the credentials, and closes again once the token is captured. MAP and
+e-fix share one Bayernwerk-Netz account, so one pair of env vars covers both.
 
-2. This caches a token under `~/.cache/bayernwerk-client/{map,efix}-tokens.json`.
-   This server's tools read that cache directly. If a tool call reports an
-   authentication error (missing or expired token), re-run the matching
-   `login` command and retry.
+Set `BAYERNWERK_LOGIN_HEADLESS=true` to suppress the visible window - only
+worth it on a host nobody is watching, and more likely to get stuck on the
+Cloudflare challenge (see the bayernwerk-client README for why headed is the
+default).
 
-Access tokens last about an hour and there is no reliable silent refresh
-(see the bayernwerk-client README for why) - expect to redo step 1 roughly
-hourly during a long session.
+Access tokens last about an hour and there's no reliable silent refresh, so
+expect a browser flash roughly every hour during a long session - that's
+normal, not a bug.
+
+### Manual login (no credentials on the server)
+
+Without `MAP_EMAIL`/`MAP_PASSWORD` configured, tool calls never open a
+browser themselves. Install `bayernwerk-client` with its `login` extra and
+run the CLI login once per service, outside of any MCP client, in a normal
+terminal:
+
+```bash
+uv tool install "bayernwerk-client[login]"
+playwright install chromium
+bayernwerk map login
+bayernwerk efix login
+```
+
+This caches a token under `~/.cache/bayernwerk-client/{map,efix}-tokens.json`,
+which this server's tools then read directly. If a tool call reports an
+authentication error (missing or expired token), re-run the matching `login`
+command and retry.
 
 ## Tools
 
@@ -107,7 +129,9 @@ uv run mcp dev src/bayernwerk_mcp/server.py
 
 ## Configuration in VS Code / Claude Desktop
 
-Add the server to your MCP configuration (`.vscode/mcp.json` or `claude_desktop_config.json`):
+Add the server to your MCP configuration (`.vscode/mcp.json` or `claude_desktop_config.json`).
+The `env` block is optional - add it to enable [automatic login](#automatic-login-recommended-if-youre-at-the-keyboard);
+leave it out for [manual login](#manual-login-no-credentials-on-the-server) via the CLI instead.
 
 **Local development (workspace checkout):**
 
@@ -120,7 +144,11 @@ Add the server to your MCP configuration (`.vscode/mcp.json` or `claude_desktop_
         "-l",
         "-c",
         "uv --directory ${workspaceFolder} run bayernwerk-mcp"
-      ]
+      ],
+      "env": {
+        "MAP_EMAIL": "your@email.de",
+        "MAP_PASSWORD": "your-password"
+      }
     }
   }
 }
@@ -137,7 +165,11 @@ Add the server to your MCP configuration (`.vscode/mcp.json` or `claude_desktop_
         "-l",
         "-c",
         "uvx --from git+https://github.com/the78mole/bayernwerk-mcp.git bayernwerk-mcp"
-      ]
+      ],
+      "env": {
+        "MAP_EMAIL": "your@email.de",
+        "MAP_PASSWORD": "your-password"
+      }
     }
   }
 }
@@ -148,6 +180,19 @@ Once both `bayernwerk-client` and `bayernwerk-mcp` are published on PyPI,
 
 > **Note:** `bash -l` loads the login shell profile, which ensures `uvx`/`uv`
 > are found in `~/.local/bin` without any additional `env` configuration.
+
+> **Credentials in plain text:** `MAP_EMAIL`/`MAP_PASSWORD` end up unencrypted
+> in your MCP client's config file (and in this process's environment) when
+> set this way - treat that file like any other secret, and skip this if
+> you'd rather keep credentials out of it entirely (use manual login instead).
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAP_EMAIL` | - | Bayernwerk-Netz account email. If set together with `MAP_PASSWORD`, enables automatic login for both MAP and e-fix. |
+| `MAP_PASSWORD` | - | Bayernwerk-Netz account password. |
+| `BAYERNWERK_LOGIN_HEADLESS` | `false` | Set to `true` to run the automatic login's browser headless instead of visibly. |
 
 ## Local Development
 

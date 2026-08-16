@@ -66,8 +66,12 @@ async def test_map_get_order_has_order_id_parameter():
 
 @pytest.mark.anyio
 async def test_call_map_list_orders_returns_orders(mock_orders):
-    with patch("bayernwerk_mcp.server.MapClient") as MockMapClient:
-        client = MockMapClient.from_token_store.return_value
+    with (
+        patch("bayernwerk_mcp.server.TokenStore") as MockTokenStore,
+        patch("bayernwerk_mcp.server.MapClient") as MockMapClient,
+    ):
+        MockTokenStore.return_value.load.return_value = object()
+        client = MockMapClient.return_value
         client.list_orders.return_value = mock_orders
         result = await mcp.call_tool("map_list_orders", {})
 
@@ -78,8 +82,12 @@ async def test_call_map_list_orders_returns_orders(mock_orders):
 
 @pytest.mark.anyio
 async def test_call_map_get_order_with_order_id(mock_orders):
-    with patch("bayernwerk_mcp.server.MapClient") as MockMapClient:
-        client = MockMapClient.from_token_store.return_value
+    with (
+        patch("bayernwerk_mcp.server.TokenStore") as MockTokenStore,
+        patch("bayernwerk_mcp.server.MapClient") as MockMapClient,
+    ):
+        MockTokenStore.return_value.load.return_value = object()
+        client = MockMapClient.return_value
         client.get_order.return_value = mock_orders[0]
         result = await mcp.call_tool("map_get_order", {"order_id": "1"})
 
@@ -97,8 +105,12 @@ async def test_call_map_get_order_with_order_id(mock_orders):
 @pytest.mark.anyio
 async def test_call_efix_get_user_status():
     expected = {"role": "INSTALLER", "fullName": "Test User"}
-    with patch("bayernwerk_mcp.server.EfixClient") as MockEfixClient:
-        client = MockEfixClient.from_token_store.return_value
+    with (
+        patch("bayernwerk_mcp.server.TokenStore") as MockTokenStore,
+        patch("bayernwerk_mcp.server.EfixClient") as MockEfixClient,
+    ):
+        MockTokenStore.return_value.load.return_value = object()
+        client = MockEfixClient.return_value
         client.get_user_status.return_value = expected
         result = await mcp.call_tool("efix_get_user_status", {})
 

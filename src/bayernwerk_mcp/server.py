@@ -5,15 +5,29 @@ Exposes the Bayernwerk Netz Mein.Auftragsportal (MAP) and e-fix installer
 portal via the Model Context Protocol (MCP). Tools wrap the bayernwerk-client
 library's MapClient and EfixClient.
 
-Authentication is out of scope for this server: both portals sit behind a
-Cloudflare-JS-challenge + Salesforce Aura login that only a real browser can
-complete (see bayernwerk-client's README for why). Run `bayernwerk map login`
-/ `bayernwerk efix login` from the bayernwerk-client CLI once (and again
-whenever a tool call reports an expired/missing token) - this server only
-ever reads the token cache those commands populate, it never launches a
-browser itself.
+Both portals sit behind a Cloudflare-JS-challenge + Salesforce Aura login
+that only a real browser can complete (see bayernwerk-client's README for
+why), so logging in is always a Playwright-driven browser flow - this server
+just decides *when* to trigger it:
+
+- If MAP_EMAIL/MAP_PASSWORD are set in this process's environment (configured
+  as env vars on the MCP server in e.g. claude_desktop_config.json), a tool
+  call with no/expired cached token logs in automatically via
+  bayernwerk_client's login_interactive - headed (visible browser) by
+  default, since that's needed for the Cloudflare challenge and lets you
+  handle an unexpected MFA/consent prompt if one appears. Set
+  BAYERNWERK_LOGIN_HEADLESS=true to run headless instead (only worth it on a
+  host nobody is watching, and more likely to get stuck on the Cloudflare
+  challenge).
+- Without those env vars, a missing/expired token instead returns an
+  {"error": ...} telling you to run `bayernwerk map login` / `bayernwerk
+  efix login` (the bayernwerk-client CLI) manually.
+
+MAP and e-fix share one Bayernwerk-Netz account, so both use the same
+MAP_EMAIL/MAP_PASSWORD - matching the bayernwerk-client CLI's own convention.
 """
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -22,7 +36,7 @@ from bayernwerk_client.exceptions import ApiError, AuthenticationError
 from bayernwerk_client.map.client import MAP_TOKEN_PATH, MapClient
 from bayernwerk_client.map.formatting import is_order_finished
 from bayernwerk_client.map.instances import iter_instance_items
-from bayernwerk_client.tokens import TokenStore
+from bayernwerk_client.tokens import TokenSet, TokenStore
 from mcp.server.mcpserver import MCPServer
 
 # ---------------------------------------------------------------------------
@@ -33,26 +47,60 @@ mcp = MCPServer(
     "bayernwerk",
     instructions=(
         "Access to the Bayernwerk Netz Mein.Auftragsportal (MAP, `map_*` tools) and the "
-        "e-fix installer portal (`efix_*` tools). Both need a one-time interactive login "
-        "outside this server - if a tool reports an authentication error, tell the user to "
-        "run `bayernwerk map login` or `bayernwerk efix login` (bayernwerk-client CLI) in a "
-        "terminal, then retry. Order-related tools take a Bayernwerk order ID such as "
-        "'2577481104', as seen in the portal or returned by map_list_orders."
+        "e-fix installer portal (`efix_*` tools). If MAP_EMAIL/MAP_PASSWORD are configured "
+        "on this server, missing/expired logins are handled automatically (a browser window "
+        "may briefly appear on the server's machine). Otherwise, if a tool reports an "
+        "authentication error, tell the user to run `bayernwerk map login` or `bayernwerk "
+        "efix login` (bayernwerk-client CLI) in a terminal, then retry. Order-related tools "
+        "take a Bayernwerk order ID such as '2577481104', as seen in the portal or returned "
+        "by map_list_orders."
     ),
 )
 
 
+def _login_headless() -> bool:
+    return os.environ.get("BAYERNWERK_LOGIN_HEADLESS", "").strip().lower() in ("1", "true", "yes")
+
+
+def _login_from_env(service: str) -> TokenSet:
+    """Run bayernwerk_client's Playwright login using MAP_EMAIL/MAP_PASSWORD.
+
+    Args:
+        service: "map" or "efix" - only picks the right login_interactive/CLI
+            hint, both services read the same MAP_EMAIL/MAP_PASSWORD.
+    """
+    email = os.environ.get("MAP_EMAIL")
+    password = os.environ.get("MAP_PASSWORD")
+    if not email or not password:
+        raise AuthenticationError(
+            f"No cached {service} token and MAP_EMAIL/MAP_PASSWORD are not configured on "
+            f"this server. Either set them as env vars in the MCP server config to enable "
+            f"automatic login, or run `bayernwerk {service} login` manually."
+        )
+    if service == "map":
+        from bayernwerk_client.map.auth import login_interactive
+    else:
+        from bayernwerk_client.efix.auth import login_interactive
+    return login_interactive(email, password, headless=_login_headless())
+
+
 def _map_call(fn: Callable[[MapClient], Any]) -> Any:
-    """Run `fn` against a fresh MapClient loaded from the cached token, translating
-    auth/API failures into an `{"error": ...}` dict instead of raising."""
+    """Run `fn` against a MapClient, auto-logging in via MAP_EMAIL/MAP_PASSWORD (if
+    configured) whenever the cached token is missing or expires, and translating
+    remaining auth/API failures into an `{"error": ...}` dict instead of raising."""
+    store = TokenStore(MAP_TOKEN_PATH)
     try:
-        client = MapClient.from_token_store(TokenStore(MAP_TOKEN_PATH))
+        tokens = store.load()
+        if tokens is None:
+            tokens = _login_from_env("map")
+            store.save(tokens)
+        client = MapClient(tokens, token_store=store, on_token_expired=lambda _old: _login_from_env("map"))
     except AuthenticationError as exc:
-        return {"error": f"{exc} Run `bayernwerk map login` to authenticate."}
+        return {"error": str(exc)}
     try:
         return fn(client)
     except AuthenticationError as exc:
-        return {"error": f"{exc} Run `bayernwerk map login` to re-authenticate."}
+        return {"error": str(exc)}
     except ApiError as exc:
         return {"error": str(exc)}
     finally:
@@ -61,14 +109,19 @@ def _map_call(fn: Callable[[MapClient], Any]) -> Any:
 
 def _efix_call(fn: Callable[[EfixClient], Any]) -> Any:
     """Same as `_map_call`, for the e-fix portal."""
+    store = TokenStore(EFIX_TOKEN_PATH)
     try:
-        client = EfixClient.from_token_store(TokenStore(EFIX_TOKEN_PATH))
+        tokens = store.load()
+        if tokens is None:
+            tokens = _login_from_env("efix")
+            store.save(tokens)
+        client = EfixClient(tokens, token_store=store, on_token_expired=lambda _old: _login_from_env("efix"))
     except AuthenticationError as exc:
-        return {"error": f"{exc} Run `bayernwerk efix login` to authenticate."}
+        return {"error": str(exc)}
     try:
         return fn(client)
     except AuthenticationError as exc:
-        return {"error": f"{exc} Run `bayernwerk efix login` to re-authenticate."}
+        return {"error": str(exc)}
     except ApiError as exc:
         return {"error": str(exc)}
     finally:
