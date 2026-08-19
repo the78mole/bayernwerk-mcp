@@ -176,6 +176,9 @@ jobs:
   publish:
     name: Publish bayernwerk-mcp to PyPI
     needs: [version, build]
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.publish_target == 'all' || github.event.inputs.publish_target == 'pypi-only')
     runs-on: ubuntu-latest
 
     environment:
