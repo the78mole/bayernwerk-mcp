@@ -4,12 +4,10 @@
 # repo-ci-standards skill for why this must NOT be split into a
 # separately-`uses:`-called reusable workflow.
 #
-# NOTE: bayernwerk-client is not on PyPI yet as of writing this workflow.
-# `uv build` only needs pyproject.toml metadata (not a working dependency
-# resolution), so the build step below works regardless - but this package
-# won't be *installable* from PyPI until bayernwerk-client is published
-# there too. Don't enable/rely on the `publish` job before that, and before
-# a PyPI Trusted Publisher is configured for this repo+workflow+environment.
+# NOTE: bayernwerk-client is published on PyPI since 09/2026, so this package
+# is installable from PyPI as well - the earlier caveat about the `publish`
+# job no longer applies. `uv build` only needs pyproject.toml metadata (not a
+# working dependency resolution), so the build step below works regardless.
 
 name: Create Release and Publish to PyPI
 
